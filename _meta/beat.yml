@@ -3,5 +3,9 @@
 ############################# Kafkabeat ######################################
 
 kafkabeat:
-  # Defines how often an event is sent to the output
-  period: 1s
+  # brokers kafka brokers.
+  brokers: "localhost:9092"
+  # topics kafka topics.
+  topics: "topic1,topic2"
+  # group kafka consumer group.
+  group: "kafkabeat"

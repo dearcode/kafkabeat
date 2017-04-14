@@ -1,6 +1,6 @@
 # Kafkabeat
 
-Welcome to Kafkabeat.
+Welcome to Kafkabeat. Kafkabeat is a beat that allows you to read data from kafka and index the results into elasticsearch.  
 
 Ensure that this folder is at the following location:
 `${GOPATH}/github.com/dearcode`
@@ -46,8 +46,19 @@ To run Kafkabeat with debugging output enabled, run:
 
 ```
 ./kafkabeat -c kafkabeat.yml -e -d "*"
-```
+```  
 
+### Configuring  
+```
+kafkabeat:
+  # brokers kafka brokers.
+  brokers: "localhost:9092"
+  # topics kafka topics.
+  topics: "topic1,topic2"
+  # group kafka consumer group.
+  group: "kafkabeat"
+
+```
 
 ### Test
 
