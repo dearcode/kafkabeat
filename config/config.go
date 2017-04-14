@@ -3,12 +3,14 @@
 
 package config
 
-import "time"
-
 type Config struct {
-	Period time.Duration `config:"period"`
+	Brokers string `config:"brokers"`
+	Topics  string `config:"topics"`
+	Group   string `config:"group"`
 }
 
 var DefaultConfig = Config{
-	Period: 1 * time.Second,
+	Brokers: "localhost:9092",
+	Topics:  "test1,test2",
+	Group:   "kafkabeat",
 }

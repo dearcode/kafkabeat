@@ -1,7 +1,9 @@
 package beater
 
 import (
+	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/elastic/beats/libbeat/beat"
@@ -9,13 +11,17 @@ import (
 	"github.com/elastic/beats/libbeat/logp"
 	"github.com/elastic/beats/libbeat/publisher"
 
+	cluster "github.com/bsm/sarama-cluster"
+
 	"github.com/dearcode/kafkabeat/config"
 )
 
 type Kafkabeat struct {
-	done   chan struct{}
-	config config.Config
-	client publisher.Client
+	ctx      context.Context
+	cancel   context.CancelFunc
+	config   config.Config
+	pc       publisher.Client
+	consumer *cluster.Consumer
 }
 
 // Creates beater
@@ -25,38 +31,69 @@ func New(b *beat.Beat, cfg *common.Config) (beat.Beater, error) {
 		return nil, fmt.Errorf("Error reading config file: %v", err)
 	}
 
-	bt := &Kafkabeat{
-		done: make(chan struct{}),
-		config: config,
+	cc := cluster.NewConfig()
+	cc.Consumer.Return.Errors = true
+	cc.Group.Return.Notifications = true
+	consumer, err := cluster.NewConsumer(strings.Split(config.Brokers, ","), config.Group, strings.Split(config.Topics, ","), cc)
+	if err != nil {
+		return nil, fmt.Errorf("Error NewConsumer: %v", err)
 	}
-	return bt, nil
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	kb := &Kafkabeat{
+		ctx:      ctx,
+		cancel:   cancel,
+		config:   config,
+		pc:       b.Publisher.Connect(),
+		consumer: consumer,
+	}
+	return kb, nil
 }
 
-func (bt *Kafkabeat) Run(b *beat.Beat) error {
+func (kb *Kafkabeat) Run(b *beat.Beat) error {
 	logp.Info("kafkabeat is running! Hit CTRL-C to stop it.")
 
-	bt.client = b.Publisher.Connect()
-	ticker := time.NewTicker(bt.config.Period)
-	counter := 1
 	for {
 		select {
-		case <-bt.done:
-			return nil
-		case <-ticker.C:
-		}
+		case <-kb.ctx.Done():
+			logp.Info("kafkabeat stop.")
+			kb.consumer.Close()
 
-		event := common.MapStr{
-			"@timestamp": common.Time(time.Now()),
-			"type":       b.Name,
-			"counter":    counter,
+			if msg, ok := <-kb.consumer.Messages(); ok {
+				event := common.MapStr{
+					"@timestamp": common.Time(time.Now()),
+					"type":       b.Name,
+					"message":    msg,
+				}
+				kb.pc.PublishEvent(event)
+			}
+
+			return nil
+
+		case msg, ok := <-kb.consumer.Messages():
+			if ok {
+				event := common.MapStr{
+					"@timestamp": common.Time(time.Now()),
+					"type":       b.Name,
+					"message":    msg,
+				}
+				kb.pc.PublishEvent(event)
+				kb.consumer.MarkOffset(msg, "") // mark message as processed
+			}
+		case err, ok := <-kb.consumer.Errors():
+			if ok {
+				logp.Info("Error: %s\n", err.Error())
+			}
+		case ntf, ok := <-kb.consumer.Notifications():
+			if ok {
+				logp.Info("Rebalanced: %+v\n", ntf)
+			}
 		}
-		bt.client.PublishEvent(event)
-		logp.Info("Event sent")
-		counter++
 	}
 }
 
-func (bt *Kafkabeat) Stop() {
-	bt.client.Close()
-	close(bt.done)
+func (kb *Kafkabeat) Stop() {
+	kb.pc.Close()
+	kb.cancel()
 }
