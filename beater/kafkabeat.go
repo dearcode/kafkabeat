@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/elastic/beats/libbeat/beat"
 	"github.com/elastic/beats/libbeat/common"
@@ -62,9 +61,7 @@ func (kb *Kafkabeat) Run(b *beat.Beat) error {
 
 			if msg, ok := <-kb.consumer.Messages(); ok {
 				event := common.MapStr{
-					"@timestamp": common.Time(time.Now()),
-					"type":       b.Name,
-					"message":    msg,
+					"message": msg,
 				}
 				kb.pc.PublishEvent(event)
 			}
@@ -74,9 +71,7 @@ func (kb *Kafkabeat) Run(b *beat.Beat) error {
 		case msg, ok := <-kb.consumer.Messages():
 			if ok {
 				event := common.MapStr{
-					"@timestamp": common.Time(time.Now()),
-					"type":       b.Name,
-					"message":    msg,
+					"message": msg,
 				}
 				kb.pc.PublishEvent(event)
 				kb.consumer.MarkOffset(msg, "") // mark message as processed
