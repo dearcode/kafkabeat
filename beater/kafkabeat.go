@@ -2,6 +2,7 @@ package beater
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -50,6 +51,29 @@ func New(b *beat.Beat, cfg *common.Config) (beat.Beater, error) {
 	return kb, nil
 }
 
+func (kb *Kafkabeat) decodeMessage(msg []byte) (common.MapStr, error) {
+	var m common.MapStr
+
+	if err := json.Unmarshal(msg, &m); err != nil {
+		return nil, err
+	}
+
+	if to, err := m.GetValue("@timestamp"); err == nil {
+		ts, _ := to.(string)
+		t, err := common.ParseTime(ts)
+		if err != nil {
+			return nil, err
+		}
+		m.Put("@timestamp", t)
+	}
+
+	if bo, err := m.GetValue("beat"); err == nil {
+		m.Put("filebeat", bo)
+	}
+
+	return m, nil
+}
+
 func (kb *Kafkabeat) Run(b *beat.Beat) error {
 	logp.Info("kafkabeat is running! Hit CTRL-C to stop it.")
 
@@ -60,18 +84,23 @@ func (kb *Kafkabeat) Run(b *beat.Beat) error {
 			kb.consumer.Close()
 
 			if msg, ok := <-kb.consumer.Messages(); ok {
-				event := common.MapStr{
-					"message": msg,
+				event, err := kb.decodeMessage(msg.Value)
+				if err != nil {
+					logp.Err("kafkabeat decode message error:%v, value:%s", err, msg.Value)
+					continue
 				}
 				kb.pc.PublishEvent(event)
+				kb.consumer.MarkOffset(msg, "") // mark message as processed
 			}
 
 			return nil
 
 		case msg, ok := <-kb.consumer.Messages():
 			if ok {
-				event := common.MapStr{
-					"message": msg,
+				event, err := kb.decodeMessage(msg.Value)
+				if err != nil {
+					logp.Err("kafkabeat decode message error:%v, value:%s", err, msg.Value)
+					continue
 				}
 				kb.pc.PublishEvent(event)
 				kb.consumer.MarkOffset(msg, "") // mark message as processed
