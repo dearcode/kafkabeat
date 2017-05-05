@@ -4,13 +4,13 @@
 package config
 
 type Config struct {
-	Brokers string `config:"brokers"`
-	Topics  string `config:"topics"`
-	Group   string `config:"group"`
+	Brokers []string `config:"brokers"`
+	Topics  []string `config:"topics"`
+	Group   string   `config:"group"`
 }
 
 var DefaultConfig = Config{
-	Brokers: "localhost:9092",
-	Topics:  "test1,test2",
+	Brokers: []string{"localhost:9092"},
+	Topics:  []string{"test1", "test2"},
 	Group:   "kafkabeat",
 }

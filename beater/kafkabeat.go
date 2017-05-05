@@ -4,14 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
+	"github.com/Shopify/sarama"
+	cluster "github.com/bsm/sarama-cluster"
 	"github.com/elastic/beats/libbeat/beat"
 	"github.com/elastic/beats/libbeat/common"
 	"github.com/elastic/beats/libbeat/logp"
 	"github.com/elastic/beats/libbeat/publisher"
-
-	cluster "github.com/bsm/sarama-cluster"
 
 	"github.com/dearcode/kafkabeat/config"
 )
@@ -34,7 +33,8 @@ func New(b *beat.Beat, cfg *common.Config) (beat.Beater, error) {
 	cc := cluster.NewConfig()
 	cc.Consumer.Return.Errors = true
 	cc.Group.Return.Notifications = true
-	consumer, err := cluster.NewConsumer(strings.Split(config.Brokers, ","), config.Group, strings.Split(config.Topics, ","), cc)
+
+	consumer, err := cluster.NewConsumer(config.Brokers, config.Group, config.Topics, cc)
 	if err != nil {
 		return nil, fmt.Errorf("Error NewConsumer: %v", err)
 	}
@@ -59,19 +59,39 @@ func (kb *Kafkabeat) decodeMessage(msg []byte) (common.MapStr, error) {
 	}
 
 	if to, err := m.GetValue("@timestamp"); err == nil {
-		ts, _ := to.(string)
-		t, err := common.ParseTime(ts)
-		if err != nil {
-			return nil, err
+		if tss, ok := to.(string); ok {
+			t, err := common.ParseTime(tss)
+			if err != nil {
+				return nil, err
+			}
+			m.Put("@timestamp", t)
 		}
-		m.Put("@timestamp", t)
-	}
-
-	if bo, err := m.GetValue("beat"); err == nil {
-		m.Put("filebeat", bo)
 	}
 
 	return m, nil
+}
+
+func (kb *Kafkabeat) sendMessage(msg *sarama.ConsumerMessage) error {
+	var m common.MapStr
+
+	if err := json.Unmarshal(msg.Value, &m); err != nil {
+		return err
+	}
+
+	if to, err := m.GetValue("@timestamp"); err == nil {
+		if tss, ok := to.(string); ok {
+			t, err := common.ParseTime(tss)
+			if err != nil {
+				return err
+			}
+			m.Put("@timestamp", t)
+		}
+	}
+
+	kb.pc.PublishEvent(m, publisher.Sync)
+	kb.consumer.MarkOffset(msg, "")
+
+	return nil
 }
 
 func (kb *Kafkabeat) Run(b *beat.Beat) error {
@@ -84,26 +104,20 @@ func (kb *Kafkabeat) Run(b *beat.Beat) error {
 			kb.consumer.Close()
 
 			if msg, ok := <-kb.consumer.Messages(); ok {
-				event, err := kb.decodeMessage(msg.Value)
-				if err != nil {
-					logp.Err("kafkabeat decode message error:%v, value:%s", err, msg.Value)
+				if err := kb.sendMessage(msg); err != nil {
+					logp.Err("kafkabeat push message error:%v, value:%s", err, msg.Value)
 					continue
 				}
-				kb.pc.PublishEvent(event)
-				kb.consumer.MarkOffset(msg, "") // mark message as processed
 			}
 
 			return nil
 
 		case msg, ok := <-kb.consumer.Messages():
 			if ok {
-				event, err := kb.decodeMessage(msg.Value)
-				if err != nil {
-					logp.Err("kafkabeat decode message error:%v, value:%s", err, msg.Value)
+				if err := kb.sendMessage(msg); err != nil {
+					logp.Err("kafkabeat push message error:%v, value:%s", err, msg.Value)
 					continue
 				}
-				kb.pc.PublishEvent(event)
-				kb.consumer.MarkOffset(msg, "") // mark message as processed
 			}
 		case err, ok := <-kb.consumer.Errors():
 			if ok {
