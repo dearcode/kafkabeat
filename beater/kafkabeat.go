@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
+	"time"
 
 	"github.com/Shopify/sarama"
 	cluster "github.com/bsm/sarama-cluster"
@@ -13,6 +16,7 @@ import (
 	"github.com/elastic/beats/libbeat/publisher"
 
 	"github.com/dearcode/kafkabeat/config"
+	"github.com/dearcode/kafkabeat/offset"
 )
 
 type Kafkabeat struct {
@@ -33,11 +37,14 @@ func New(b *beat.Beat, cfg *common.Config) (beat.Beater, error) {
 	cc := cluster.NewConfig()
 	cc.Consumer.Return.Errors = true
 	cc.Group.Return.Notifications = true
+	sarama.Logger = log.New(os.Stdout, "", log.LstdFlags)
 
 	consumer, err := cluster.NewConsumer(config.Brokers, config.Group, config.Topics, cc)
 	if err != nil {
 		return nil, fmt.Errorf("Error NewConsumer: %v", err)
 	}
+
+	offset.Init(consumer)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -51,28 +58,10 @@ func New(b *beat.Beat, cfg *common.Config) (beat.Beater, error) {
 	return kb, nil
 }
 
-func (kb *Kafkabeat) decodeMessage(msg []byte) (common.MapStr, error) {
-	var m common.MapStr
-
-	if err := json.Unmarshal(msg, &m); err != nil {
-		return nil, err
-	}
-
-	if to, err := m.GetValue("@timestamp"); err == nil {
-		if tss, ok := to.(string); ok {
-			t, err := common.ParseTime(tss)
-			if err != nil {
-				return nil, err
-			}
-			m.Put("@timestamp", t)
-		}
-	}
-
-	return m, nil
-}
-
 func (kb *Kafkabeat) sendMessage(msg *sarama.ConsumerMessage) error {
 	var m common.MapStr
+
+	logp.Info("topic:%v, partition:%v, offset:%v", msg.Topic, msg.Partition, msg.Offset)
 
 	if err := json.Unmarshal(msg.Value, &m); err != nil {
 		return err
@@ -86,10 +75,13 @@ func (kb *Kafkabeat) sendMessage(msg *sarama.ConsumerMessage) error {
 			}
 			m.Put("@timestamp", t)
 		}
+	} else {
+		m.Put("@timestamp", common.Time(time.Now()))
 	}
 
-	kb.pc.PublishEvent(m, publisher.Sync)
-	kb.consumer.MarkOffset(msg, "")
+	m.Put("_uuid", fmt.Sprintf("%.4x%.16x", msg.Partition, msg.Offset))
+
+	kb.pc.PublishEvent(m, publisher.Guaranteed)
 
 	return nil
 }
