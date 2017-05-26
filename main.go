@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/elastic/beats/libbeat/beat"
+	"github.com/dearcode/libbeat/beat"
 
 	"github.com/dearcode/kafkabeat/beater"
 )
