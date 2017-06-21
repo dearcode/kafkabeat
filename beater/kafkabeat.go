@@ -3,9 +3,12 @@ package beater
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"os"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/Shopify/sarama"
@@ -17,6 +20,10 @@ import (
 
 	"github.com/dearcode/kafkabeat/config"
 	"github.com/dearcode/kafkabeat/offset"
+)
+
+var (
+	topics = flag.String("t", "", "topics")
 )
 
 type Kafkabeat struct {
@@ -38,6 +45,10 @@ func New(b *beat.Beat, cfg *common.Config) (beat.Beater, error) {
 	cc.Consumer.Return.Errors = true
 	cc.Group.Return.Notifications = true
 	sarama.Logger = log.New(os.Stdout, "", log.LstdFlags)
+
+	if *topics != "" {
+		config.Topics = strings.Split(*topics, ",")
+	}
 
 	consumer, err := cluster.NewConsumer(config.Brokers, config.Group, config.Topics, cc)
 	if err != nil {
@@ -77,6 +88,10 @@ func (kb *Kafkabeat) sendMessage(msg *sarama.ConsumerMessage) error {
 		}
 	} else {
 		m.Put("@timestamp", common.Time(time.Now()))
+	}
+
+	if source, err := m.GetValue("source"); err == nil {
+		m.Put("logFile", path.Base(source.(string)))
 	}
 
 	m.Put("_uuid", fmt.Sprintf("%.4x%.16x", msg.Partition, msg.Offset))
