@@ -71,6 +71,21 @@ func Init(consumer *cluster.Consumer) {
 	}()
 }
 
+//InitQueue 如果这个topic,partition不存在就创建并初始化他
+func InitQueue(topic string, partition int32, offset int64) {
+	om.Lock()
+	defer om.Unlock()
+
+	key := fmt.Sprintf("%v_%v", topic, partition)
+
+	if _, ok := om.mq[key]; !ok {
+		q := &offsetQueue{offset: offset}
+		heap.Push(q, offset)
+		om.mq[key] = q
+		logp.Info("init topic:%v, partition:%v, offset:%v", topic, partition, offset)
+	}
+}
+
 func Update(topic string, partition int32, offset int64) {
 	logp.Debug("Update", "update topic:%v, partition:%v, offset:%v", topic, partition, offset)
 
@@ -85,19 +100,7 @@ func Update(topic string, partition int32, offset int64) {
 		om.mq[key] = q
 	}
 
-	if q.offset == 0 {
-		o := om.consumer.GetOffset(topic, partition)
-		if o < 1 {
-			logp.Info("invalid offset:%v, topic:%v, partition:%v", o, topic, partition)
-			return
-		}
-		q.offset = o
-		heap.Push(q, o)
-		logp.Info("init topic:%v, partition:%v, offset:%v", topic, partition, o)
-	}
-
 	top := q.Top()
-
 	if top == offset {
 		return
 	}

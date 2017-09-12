@@ -9,7 +9,7 @@ import (
 
 	"github.com/zssky/log"
 
-	"github.com/dearcode/crab/http"
+	"github.com/dearcode/crab/http/client"
 )
 
 var (
@@ -28,7 +28,7 @@ func LoadTopics() (string, error) {
 
 	url := fmt.Sprintf("http://%v/api/modules/", *domain)
 
-	buf, _, err := http.NewClient(httpTimeout).Get(url, nil, nil)
+	buf, _, err := client.NewClient(httpTimeout).Get(url, nil, nil)
 
 	if err != nil {
 		log.Errorf("Get modules error:%v, domain:%v", err, *domain)

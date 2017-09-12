@@ -73,6 +73,7 @@ func (kb *Kafkabeat) sendMessage(msg *sarama.ConsumerMessage) error {
 	var m common.MapStr
 
 	logp.Info("topic:%v, partition:%v, offset:%v", msg.Topic, msg.Partition, msg.Offset)
+	offset.InitQueue(msg.Topic, msg.Partition, msg.Offset)
 
 	if err := json.Unmarshal(msg.Value, &m); err != nil {
 		return err
